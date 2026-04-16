@@ -2,11 +2,13 @@ import { useState, useEffect, useCallback } from "react";
 import Icon from "@/components/ui/icon";
 
 const MATCHES_URL = "https://functions.poehali.dev/bd99c5a6-c3fc-4ab8-a2d7-dae9226a45b0";
+const RU_MATCHES_URL = "https://functions.poehali.dev/ad1fe600-20e4-4356-95ea-5a86680cd130";
 
 type Tab = "results" | "schedule" | "stats" | "tournaments" | "ratings" | "favorites" | "profile";
+type SportFilter = "all" | "ru" | "football" | "hockey" | "basketball" | "volleyball";
 
 interface Match {
-  id: number;
+  id: string | number;
   home: string;
   away: string;
   scoreHome: number | null;
@@ -488,9 +490,29 @@ function ProfileTab() {
   );
 }
 
+const SPORT_FILTERS: { id: SportFilter; label: string }[] = [
+  { id: "all", label: "Все" },
+  { id: "ru", label: "🇷🇺 Россия" },
+  { id: "football", label: "⚽ Футбол" },
+  { id: "hockey", label: "🏒 Хоккей" },
+  { id: "basketball", label: "🏀 Баскет" },
+  { id: "volleyball", label: "🏐 Волейбол" },
+];
+
+const SPORT_EMOJI_MAP: Record<string, SportFilter> = {
+  "⚽": "football",
+  "🏒": "hockey",
+  "🏀": "basketball",
+  "🏐": "volleyball",
+};
+
+const RU_LEAGUES = ["РПЛ", "ФНЛ", "КХЛ", "ВТБ", "Суперлига"];
+
 export default function Index() {
   const [activeTab, setActiveTab] = useState<Tab>("results");
+  const [sportFilter, setSportFilter] = useState<SportFilter>("all");
   const [matches, setMatches] = useState<Match[]>([]);
+  const [ruMatches, setRuMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasKey, setHasKey] = useState(true);
@@ -499,16 +521,30 @@ export default function Index() {
   const fetchMatches = useCallback(async () => {
     try {
       setError(null);
-      const res = await fetch(MATCHES_URL);
-      const data = await res.json();
-      if (data.error === "no_api_key") {
-        setHasKey(false);
-        setMatches([]);
-      } else {
-        setHasKey(true);
-        setMatches(data.matches || []);
-        setLastUpdated(new Date());
+      const [euRes, ruRes] = await Promise.allSettled([
+        fetch(MATCHES_URL).then(r => r.json()),
+        fetch(RU_MATCHES_URL).then(r => r.json()),
+      ]);
+
+      if (euRes.status === "fulfilled") {
+        const data = euRes.value;
+        if (data.error === "no_api_key") {
+          setHasKey(false);
+          setMatches([]);
+        } else {
+          setHasKey(true);
+          setMatches(data.matches || []);
+        }
       }
+
+      if (ruRes.status === "fulfilled") {
+        const data = ruRes.value;
+        if (!data.error) {
+          setRuMatches(data.matches || []);
+        }
+      }
+
+      setLastUpdated(new Date());
     } catch {
       setError("Не удалось загрузить данные. Проверь соединение.");
     } finally {
@@ -522,13 +558,21 @@ export default function Index() {
     return () => clearInterval(interval);
   }, [fetchMatches]);
 
-  const liveCount = matches.filter(m => m.status === "live").length;
+  const allMatches = [...ruMatches, ...matches];
+
+  const filteredMatches = allMatches.filter(m => {
+    if (sportFilter === "all") return true;
+    if (sportFilter === "ru") return RU_LEAGUES.some(l => m.league.includes(l));
+    return SPORT_EMOJI_MAP[m.sport] === sportFilter;
+  });
+
+  const liveCount = allMatches.filter(m => m.status === "live").length;
 
   const renderContent = () => {
     switch (activeTab) {
-      case "results": return <ResultsTab matches={matches} loading={loading} error={error} hasKey={hasKey} />;
-      case "schedule": return <ScheduleTab matches={matches} loading={loading} hasKey={hasKey} />;
-      case "stats": return <StatsTab matches={matches} />;
+      case "results": return <ResultsTab matches={filteredMatches} loading={loading} error={error} hasKey={hasKey} />;
+      case "schedule": return <ScheduleTab matches={filteredMatches} loading={loading} hasKey={hasKey} />;
+      case "stats": return <StatsTab matches={allMatches} />;
       case "tournaments": return <TournamentsTab />;
       case "ratings": return <RatingsTab />;
       case "favorites": return <FavoritesTab />;
@@ -580,16 +624,17 @@ export default function Index() {
             </p>
           )}
           <div className="flex gap-2 overflow-x-auto">
-            {["Все", "⚽ Футбол", "🏒 Хоккей", "🏀 Баскет", "🎾 Теннис"].map((s, i) => (
+            {SPORT_FILTERS.map((f) => (
               <button
-                key={i}
+                key={f.id}
+                onClick={() => setSportFilter(f.id)}
                 className={`text-xs font-display font-semibold px-3 py-1.5 whitespace-nowrap transition-all ${
-                  i === 0
-                    ? "bg-red-600 text-white"
+                  sportFilter === f.id
+                    ? f.id === "ru" ? "bg-white text-black" : "bg-red-600 text-white"
                     : "text-white/40 hover:text-white border border-white/10 hover:border-white/30"
                 }`}
               >
-                {s}
+                {f.label}
               </button>
             ))}
           </div>
