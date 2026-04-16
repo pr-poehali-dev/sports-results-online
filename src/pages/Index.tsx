@@ -1,7 +1,23 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Icon from "@/components/ui/icon";
 
+const MATCHES_URL = "https://functions.poehali.dev/bd99c5a6-c3fc-4ab8-a2d7-dae9226a45b0";
+
 type Tab = "results" | "schedule" | "stats" | "tournaments" | "ratings" | "favorites" | "profile";
+
+interface Match {
+  id: number;
+  home: string;
+  away: string;
+  scoreHome: number | null;
+  scoreAway: number | null;
+  status: "live" | "scheduled" | "finished" | "postponed";
+  time: string;
+  date: string;
+  league: string;
+  sport: string;
+  utcDate: string;
+}
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "results", label: "Результаты", icon: "Activity" },
@@ -13,53 +29,36 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "profile", label: "Профиль", icon: "User" },
 ];
 
-const MATCHES = [
-  { id: 1, home: "ЦСКА", away: "Спартак", scoreHome: 2, scoreAway: 1, status: "live", time: "67'", sport: "⚽", league: "РПЛ" },
-  { id: 2, home: "Динамо", away: "Зенит", scoreHome: 0, scoreAway: 3, status: "live", time: "45+2'", sport: "⚽", league: "РПЛ" },
-  { id: 3, home: "Локо", away: "Краснодар", scoreHome: 1, scoreAway: 1, status: "finished", time: "ФТ", sport: "⚽", league: "РПЛ" },
-  { id: 4, home: "УНИКС", away: "ЦСКА Баскет", scoreHome: 78, scoreAway: 82, status: "live", time: "Q3 7:24", sport: "🏀", league: "VTB" },
-  { id: 5, home: "СКА", away: "ЦСКА Хоккей", scoreHome: 2, scoreAway: 2, status: "live", time: "П3 12:08", sport: "🏒", league: "КХЛ" },
-];
-
-const SCHEDULE_MATCHES = [
-  { id: 1, home: "Рубин", away: "Факел", time: "16:00", date: "Сегодня", sport: "⚽", league: "РПЛ" },
-  { id: 2, home: "Сочи", away: "Ростов", time: "19:00", date: "Сегодня", sport: "⚽", league: "РПЛ" },
-  { id: 3, home: "Металлург", away: "Авангард", time: "20:30", date: "Сегодня", sport: "🏒", league: "КХЛ" },
-  { id: 4, home: "ЦСКА", away: "Динамо", time: "12:00", date: "Завтра", sport: "⚽", league: "РПЛ" },
-  { id: 5, home: "Химки", away: "УНИКС", time: "15:00", date: "Завтра", sport: "🏀", league: "VTB" },
-  { id: 6, home: "Зенит", away: "Спартак", time: "18:00", date: "18 апр", sport: "⚽", league: "РПЛ" },
-];
-
 const TOURNAMENTS = [
-  { name: "Российская Премьер-Лига", sport: "⚽", teams: 16, stage: "27 тур", leader: "Зенит" },
-  { name: "КХЛ — Плей-офф", sport: "🏒", teams: 8, stage: "Финал", leader: "СКА" },
-  { name: "Лига ВТБ", sport: "🏀", teams: 12, stage: "1/2 финала", leader: "ЦСКА" },
+  { name: "АПЛ — Премьер-лига", sport: "⚽", teams: 20, stage: "34 тур", leader: "Арсенал" },
   { name: "Лига Чемпионов УЕФА", sport: "⚽", teams: 32, stage: "Полуфинал", leader: "Реал Мадрид" },
+  { name: "Ла Лига", sport: "⚽", teams: 20, stage: "33 тур", leader: "Барселона" },
+  { name: "Серия А", sport: "⚽", teams: 20, stage: "34 тур", leader: "Интер" },
 ];
 
 const RATINGS = [
-  { pos: 1, team: "Зенит", pts: 58, w: 18, d: 4, l: 4, diff: "+28", change: "up" },
-  { pos: 2, team: "ЦСКА", pts: 52, w: 16, d: 4, l: 6, diff: "+19", change: "same" },
-  { pos: 3, team: "Краснодар", pts: 48, w: 14, d: 6, l: 6, diff: "+14", change: "up" },
-  { pos: 4, team: "Локо", pts: 45, w: 13, d: 6, l: 7, diff: "+10", change: "down" },
-  { pos: 5, team: "Спартак", pts: 42, w: 12, d: 6, l: 8, diff: "+5", change: "down" },
-  { pos: 6, team: "Динамо", pts: 39, w: 11, d: 6, l: 9, diff: "+2", change: "up" },
-  { pos: 7, team: "Рубин", pts: 34, w: 9, d: 7, l: 10, diff: "-3", change: "same" },
-  { pos: 8, team: "Ростов", pts: 31, w: 8, d: 7, l: 11, diff: "-8", change: "down" },
+  { pos: 1, team: "Арсенал", pts: 76, w: 23, d: 7, l: 3, diff: "+48", change: "up" },
+  { pos: 2, team: "Ливерпуль", pts: 71, w: 22, d: 5, l: 6, diff: "+39", change: "same" },
+  { pos: 3, team: "Ман Сити", pts: 68, w: 21, d: 5, l: 7, diff: "+33", change: "up" },
+  { pos: 4, team: "Челси", pts: 63, w: 19, d: 6, l: 8, diff: "+18", change: "down" },
+  { pos: 5, team: "Тоттенхэм", pts: 58, w: 17, d: 7, l: 9, diff: "+12", change: "down" },
+  { pos: 6, team: "Ман Юнайтед", pts: 54, w: 16, d: 6, l: 11, diff: "+5", change: "up" },
+  { pos: 7, team: "Ньюкасл", pts: 49, w: 14, d: 7, l: 12, diff: "-2", change: "same" },
+  { pos: 8, team: "Астон Вилла", pts: 47, w: 13, d: 8, l: 12, diff: "-5", change: "down" },
 ];
 
 const STATS = [
-  { name: "Артём Дзюба", team: "Зенит", stat: 18, label: "голов", sport: "⚽" },
-  { name: "Квинси Промес", team: "Спартак", stat: 14, label: "голов", sport: "⚽" },
-  { name: "Иван Игнатьев", team: "Краснодар", stat: 12, label: "голов", sport: "⚽" },
-  { name: "Никита Нестеров", team: "ЦСКА Хоккей", stat: 24, label: "очков", sport: "🏒" },
-  { name: "Алексей Швед", team: "Химки", stat: 22, label: "очков", sport: "🏀" },
+  { name: "Эрлинг Холанд", team: "Ман Сити", stat: 26, label: "голов", sport: "⚽" },
+  { name: "Коул Палмер", team: "Челси", stat: 21, label: "голов", sport: "⚽" },
+  { name: "Мохамед Салах", team: "Ливерпуль", stat: 19, label: "голов", sport: "⚽" },
+  { name: "Букайо Сака", team: "Арсенал", stat: 17, label: "голов", sport: "⚽" },
+  { name: "Олли Уоткинс", team: "Астон Вилла", stat: 15, label: "голов", sport: "⚽" },
 ];
 
 const FAVORITES = [
-  { id: 1, name: "Зенит", type: "Команда", sport: "⚽", nextMatch: "vs Спартак · 18 апр · 18:00" },
-  { id: 2, name: "ЦСКА Хоккей", type: "Команда", sport: "🏒", nextMatch: "vs СКА · Сегодня · П3 идёт" },
-  { id: 3, name: "КХЛ Финал", type: "Серия", sport: "🏒", nextMatch: "Игра 5 · 20 апр" },
+  { id: 1, name: "Арсенал", type: "Команда", sport: "⚽", nextMatch: "vs Ман Сити · скоро" },
+  { id: 2, name: "Лига Чемпионов", type: "Турнир", sport: "⚽", nextMatch: "Полуфинал · 29 апр" },
+  { id: 3, name: "Реал Мадрид", type: "Команда", sport: "⚽", nextMatch: "vs Барселона · Эль-Класико" },
 ];
 
 function LiveBadge() {
@@ -71,7 +70,27 @@ function LiveBadge() {
   );
 }
 
-function MatchCard({ match, delay }: { match: typeof MATCHES[0]; delay: number }) {
+function SkeletonCard() {
+  return (
+    <div className="card-sport p-4 animate-pulse">
+      <div className="flex items-center justify-between mb-2">
+        <div className="h-3 w-20 bg-white/10 rounded" />
+        <div className="h-3 w-10 bg-white/10 rounded" />
+      </div>
+      <div className="flex items-center justify-between">
+        <div className="h-5 w-24 bg-white/10 rounded" />
+        <div className="flex gap-3 mx-4">
+          <div className="h-7 w-6 bg-white/10 rounded" />
+          <div className="h-7 w-6 bg-white/10 rounded" />
+        </div>
+        <div className="h-5 w-24 bg-white/10 rounded ml-auto" />
+      </div>
+    </div>
+  );
+}
+
+function MatchCard({ match, delay }: { match: Match; delay: number }) {
+  const showScore = match.status === "live" || match.status === "finished";
   return (
     <div
       className="card-sport p-4 cursor-pointer animate-fade-in"
@@ -83,73 +102,144 @@ function MatchCard({ match, delay }: { match: typeof MATCHES[0]; delay: number }
           <span>{match.league}</span>
           {match.status === "live" && <LiveBadge />}
           {match.status === "finished" && <span className="text-white/30">Завершён</span>}
+          {match.status === "postponed" && <span className="text-yellow-500/60">Перенесён</span>}
         </div>
         <span className="text-xs text-white/40 font-display">{match.time}</span>
       </div>
       <div className="flex items-center justify-between">
         <div className="flex-1">
-          <p className="font-display font-semibold text-white text-lg">{match.home}</p>
+          <p className="font-display font-semibold text-white text-lg leading-tight">{match.home}</p>
         </div>
         <div className="flex items-center gap-3 mx-4">
-          <span className={`font-display font-bold text-2xl ${match.status === "live" ? "text-white" : "text-white/60"}`}>
-            {match.scoreHome}
-          </span>
-          <span className="text-white/20 font-display text-xl">:</span>
-          <span className={`font-display font-bold text-2xl ${match.status === "live" ? "text-white" : "text-white/60"}`}>
-            {match.scoreAway}
-          </span>
+          {showScore ? (
+            <>
+              <span className={`font-display font-bold text-2xl ${match.status === "live" ? "text-white" : "text-white/60"}`}>
+                {match.scoreHome ?? "–"}
+              </span>
+              <span className="text-white/20 font-display text-xl">:</span>
+              <span className={`font-display font-bold text-2xl ${match.status === "live" ? "text-white" : "text-white/60"}`}>
+                {match.scoreAway ?? "–"}
+              </span>
+            </>
+          ) : (
+            <span className="font-display font-bold text-xl text-white/30">{match.time || "—"}</span>
+          )}
         </div>
         <div className="flex-1 text-right">
-          <p className="font-display font-semibold text-white text-lg">{match.away}</p>
+          <p className="font-display font-semibold text-white text-lg leading-tight">{match.away}</p>
         </div>
       </div>
     </div>
   );
 }
 
-function ResultsTab() {
-  const live = MATCHES.filter(m => m.status === "live");
-  const finished = MATCHES.filter(m => m.status === "finished");
+function NoApiKeyBanner() {
+  return (
+    <div className="card-sport p-5 border border-yellow-500/30 bg-yellow-500/5">
+      <div className="flex items-start gap-3">
+        <Icon name="AlertTriangle" size={20} className="text-yellow-400 mt-0.5 shrink-0" />
+        <div>
+          <p className="font-display font-bold text-white text-sm mb-1">Нужен API-ключ</p>
+          <p className="text-xs text-white/50 font-body leading-relaxed">
+            Зарегистрируйся на <span className="text-red-400">football-data.org</span> — это бесплатно.
+            После регистрации добавь API Token в секреты проекта под именем <span className="text-white/70">FOOTBALL_API_KEY</span>.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ResultsTab({ matches, loading, error, hasKey }: { matches: Match[]; loading: boolean; error: string | null; hasKey: boolean }) {
+  const live = matches.filter(m => m.status === "live");
+  const finished = matches.filter(m => m.status === "finished");
+
+  if (!hasKey) {
+    return (
+      <div className="space-y-4 animate-fade-in">
+        <NoApiKeyBanner />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div>
-        <div className="flex items-center gap-3 mb-4">
-          <LiveBadge />
-          <h2 className="font-display text-xl font-bold text-white">Сейчас играют</h2>
-          <span className="text-xs bg-red-600 text-white px-2 py-0.5 font-display font-semibold">{live.length}</span>
-        </div>
+      {loading && (
         <div className="space-y-2">
-          {live.map((m, i) => <MatchCard key={m.id} match={m} delay={i} />)}
+          {[...Array(4)].map((_, i) => <SkeletonCard key={i} />)}
         </div>
-      </div>
-      <div>
-        <h2 className="font-display text-lg font-semibold text-white/50 mb-3 uppercase tracking-wider">Завершённые</h2>
-        <div className="space-y-2">
-          {finished.map((m, i) => <MatchCard key={m.id} match={m} delay={i} />)}
+      )}
+      {error && !loading && (
+        <div className="card-sport p-4 border border-red-500/20">
+          <p className="text-white/50 font-body text-sm">{error}</p>
         </div>
-      </div>
+      )}
+      {!loading && !error && (
+        <>
+          {live.length > 0 && (
+            <div>
+              <div className="flex items-center gap-3 mb-4">
+                <LiveBadge />
+                <h2 className="font-display text-xl font-bold text-white">Сейчас играют</h2>
+                <span className="text-xs bg-red-600 text-white px-2 py-0.5 font-display font-semibold">{live.length}</span>
+              </div>
+              <div className="space-y-2">
+                {live.map((m, i) => <MatchCard key={m.id} match={m} delay={i} />)}
+              </div>
+            </div>
+          )}
+          {finished.length > 0 && (
+            <div>
+              <h2 className="font-display text-lg font-semibold text-white/50 mb-3 uppercase tracking-wider">Завершённые</h2>
+              <div className="space-y-2">
+                {finished.map((m, i) => <MatchCard key={m.id} match={m} delay={i} />)}
+              </div>
+            </div>
+          )}
+          {live.length === 0 && finished.length === 0 && (
+            <div className="text-center py-16">
+              <p className="font-display text-4xl text-white/10 mb-3">⚽</p>
+              <p className="font-display font-semibold text-white/30 uppercase tracking-wider">Матчей сейчас нет</p>
+              <p className="text-white/20 font-body text-sm mt-2">Проверь расписание</p>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
 
-function ScheduleTab() {
-  const grouped: Record<string, typeof SCHEDULE_MATCHES> = {};
-  SCHEDULE_MATCHES.forEach(m => {
+function ScheduleTab({ matches, loading, hasKey }: { matches: Match[]; loading: boolean; hasKey: boolean }) {
+  const scheduled = matches.filter(m => m.status === "scheduled");
+  const grouped: Record<string, Match[]> = {};
+  scheduled.forEach(m => {
     if (!grouped[m.date]) grouped[m.date] = [];
     grouped[m.date].push(m);
   });
 
+  if (!hasKey) {
+    return <div className="animate-fade-in"><NoApiKeyBanner /></div>;
+  }
+
   return (
     <div className="space-y-6 animate-fade-in">
-      {Object.entries(grouped).map(([date, matches], gi) => (
+      {loading && (
+        <div className="space-y-2">{[...Array(5)].map((_, i) => <SkeletonCard key={i} />)}</div>
+      )}
+      {!loading && Object.keys(grouped).length === 0 && (
+        <div className="text-center py-16">
+          <p className="font-display text-4xl text-white/10 mb-3">📅</p>
+          <p className="font-display font-semibold text-white/30 uppercase tracking-wider">Нет запланированных матчей</p>
+        </div>
+      )}
+      {!loading && Object.entries(grouped).map(([date, dayMatches], gi) => (
         <div key={date}>
           <div className="flex items-center gap-3 mb-3">
             <span className="font-display font-semibold text-red-500 text-sm uppercase tracking-widest">{date}</span>
             <div className="flex-1 h-px bg-white/10" />
           </div>
           <div className="space-y-2">
-            {matches.map((m, i) => (
+            {dayMatches.map((m, i) => (
               <div
                 key={m.id}
                 className="card-sport p-4 flex items-center justify-between cursor-pointer animate-fade-in"
@@ -179,14 +269,18 @@ function ScheduleTab() {
   );
 }
 
-function StatsTab() {
+function StatsTab({ matches }: { matches: Match[] }) {
+  const totalToday = matches.length;
+  const liveNow = matches.filter(m => m.status === "live").length;
+  const leagueCount = new Set(matches.map(m => m.league)).size;
+
   return (
     <div className="animate-fade-in space-y-6">
       <div className="grid grid-cols-3 gap-3">
         {[
-          { val: "2 847", label: "Матчей" },
-          { val: "98%", label: "Актуально" },
-          { val: "14", label: "Лиг" },
+          { val: totalToday || "—", label: "Матчей сегодня" },
+          { val: liveNow || "—", label: "LIVE сейчас" },
+          { val: leagueCount || "7", label: "Лиг" },
         ].map((s, i) => (
           <div key={i} className="card-sport p-4 text-center">
             <p className="font-display font-bold text-3xl neon-text">{s.val}</p>
@@ -195,7 +289,7 @@ function StatsTab() {
         ))}
       </div>
       <div>
-        <h2 className="font-display text-xl font-bold text-white mb-4 uppercase">Лучшие игроки</h2>
+        <h2 className="font-display text-xl font-bold text-white mb-4 uppercase">Топ бомбардиры АПЛ</h2>
         <div className="space-y-2">
           {STATS.map((s, i) => (
             <div
@@ -255,8 +349,8 @@ function RatingsTab() {
   return (
     <div className="animate-fade-in">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="font-display text-xl font-bold text-white uppercase">РПЛ · 2025/26</h2>
-        <span className="text-xs text-red-500 font-display font-semibold border border-red-500/30 px-2 py-1">27 ТУР</span>
+        <h2 className="font-display text-xl font-bold text-white uppercase">АПЛ · 2024/25</h2>
+        <span className="text-xs text-red-500 font-display font-semibold border border-red-500/30 px-2 py-1">34 ТУР</span>
       </div>
       <div className="card-sport overflow-hidden">
         <div className="grid grid-cols-[28px_1fr_44px_28px_28px_28px_44px_32px] gap-1 px-4 py-2 border-b border-white/5">
@@ -308,7 +402,7 @@ function FavoritesTab() {
           <Icon name="Bell" size={18} className="text-yellow-400 mt-0.5" />
           <div>
             <p className="font-display font-semibold text-white text-sm">Push-уведомления активны</p>
-            <p className="text-xs text-white/40 font-body mt-1">Оповещения о начале матчей, голах и финальных свистках</p>
+            <p className="text-xs text-white/40 font-body mt-1">Оповещения о начале матчей, голах и результатах</p>
           </div>
         </div>
       </div>
@@ -396,20 +490,51 @@ function ProfileTab() {
 
 export default function Index() {
   const [activeTab, setActiveTab] = useState<Tab>("results");
+  const [matches, setMatches] = useState<Match[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [hasKey, setHasKey] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
+  const fetchMatches = useCallback(async () => {
+    try {
+      setError(null);
+      const res = await fetch(MATCHES_URL);
+      const data = await res.json();
+      if (data.error === "no_api_key") {
+        setHasKey(false);
+        setMatches([]);
+      } else {
+        setHasKey(true);
+        setMatches(data.matches || []);
+        setLastUpdated(new Date());
+      }
+    } catch {
+      setError("Не удалось загрузить данные. Проверь соединение.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchMatches();
+    const interval = setInterval(fetchMatches, 60_000);
+    return () => clearInterval(interval);
+  }, [fetchMatches]);
+
+  const liveCount = matches.filter(m => m.status === "live").length;
 
   const renderContent = () => {
     switch (activeTab) {
-      case "results": return <ResultsTab />;
-      case "schedule": return <ScheduleTab />;
-      case "stats": return <StatsTab />;
+      case "results": return <ResultsTab matches={matches} loading={loading} error={error} hasKey={hasKey} />;
+      case "schedule": return <ScheduleTab matches={matches} loading={loading} hasKey={hasKey} />;
+      case "stats": return <StatsTab matches={matches} />;
       case "tournaments": return <TournamentsTab />;
       case "ratings": return <RatingsTab />;
       case "favorites": return <FavoritesTab />;
       case "profile": return <ProfileTab />;
     }
   };
-
-  const liveCount = MATCHES.filter(m => m.status === "live").length;
 
   return (
     <div className="min-h-screen" style={{ background: "var(--dark-bg)" }}>
@@ -434,9 +559,12 @@ export default function Index() {
                 <span className="font-display font-semibold text-red-500 text-xs">{liveCount} LIVE</span>
               </div>
             )}
-            <button className="relative p-2 text-white/50 hover:text-white transition-colors">
-              <Icon name="Bell" size={20} />
-              <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
+            <button
+              onClick={() => { setLoading(true); fetchMatches(); }}
+              className="p-2 text-white/50 hover:text-white transition-colors"
+              title="Обновить"
+            >
+              <Icon name={loading ? "Loader" : "RefreshCw"} size={18} className={loading ? "animate-spin" : ""} />
             </button>
             <button className="p-2 text-white/50 hover:text-white transition-colors">
               <Icon name="Search" size={20} />
@@ -444,20 +572,27 @@ export default function Index() {
           </div>
         </div>
 
-        {/* Sport filter */}
-        <div className="max-w-2xl mx-auto px-4 pb-3 flex gap-2 overflow-x-auto">
-          {["Все", "⚽ Футбол", "🏒 Хоккей", "🏀 Баскет", "🎾 Теннис"].map((s, i) => (
-            <button
-              key={i}
-              className={`text-xs font-display font-semibold px-3 py-1.5 whitespace-nowrap transition-all ${
-                i === 0
-                  ? "bg-red-600 text-white"
-                  : "text-white/40 hover:text-white border border-white/10 hover:border-white/30"
-              }`}
-            >
-              {s}
-            </button>
-          ))}
+        {/* Last updated + sport filter */}
+        <div className="max-w-2xl mx-auto px-4 pb-2">
+          {lastUpdated && (
+            <p className="text-[10px] text-white/20 font-body mb-2">
+              Обновлено: {lastUpdated.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
+            </p>
+          )}
+          <div className="flex gap-2 overflow-x-auto">
+            {["Все", "⚽ Футбол", "🏒 Хоккей", "🏀 Баскет", "🎾 Теннис"].map((s, i) => (
+              <button
+                key={i}
+                className={`text-xs font-display font-semibold px-3 py-1.5 whitespace-nowrap transition-all ${
+                  i === 0
+                    ? "bg-red-600 text-white"
+                    : "text-white/40 hover:text-white border border-white/10 hover:border-white/30"
+                }`}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
         </div>
       </header>
 
