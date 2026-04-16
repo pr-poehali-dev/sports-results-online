@@ -1,13 +1,14 @@
 """
 Получение матчей российских лиг через api-sport.ru.
 Поддерживает футбол (РПЛ, ФНЛ), хоккей (КХЛ), баскетбол (Единая лига ВТБ), волейбол.
-v2 — вчерашние результаты + сегодня
+v3 — параллельные запросы, вчера + сегодня
 """
 import os
 import json
 import urllib.request
 import urllib.error
 from datetime import datetime, timedelta, timezone
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 BASE_URL = "https://v3.football.api-sports.io"
@@ -189,8 +190,15 @@ def fetch_other_sport(sport: str, league_id: int, league_name: str, emoji: str, 
     return results
 
 
+def fetch_league(league: dict, api_key: str) -> list:
+    sport = league["sport"]
+    if sport == "football":
+        return fetch_football(league["id"], league["name"], api_key)
+    return fetch_other_sport(sport, league["id"], league["name"], league["emoji"], api_key)
+
+
 def handler(event: dict, context) -> dict:
-    """Матчи российских лиг: РПЛ, ФНЛ, КХЛ, ВТБ, волейбол"""
+    """Матчи российских лиг: РПЛ, ФНЛ, КХЛ, ВТБ, волейбол — параллельные запросы"""
     cors = {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET, OPTIONS",
@@ -210,13 +218,13 @@ def handler(event: dict, context) -> dict:
 
     all_matches = []
 
-    for league in LEAGUES:
-        sport = league["sport"]
-        if sport == "football":
-            matches = fetch_football(league["id"], league["name"], api_key)
-        else:
-            matches = fetch_other_sport(sport, league["id"], league["name"], league["emoji"], api_key)
-        all_matches.extend(matches)
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {executor.submit(fetch_league, league, api_key): league for league in LEAGUES}
+        for future in as_completed(futures):
+            try:
+                all_matches.extend(future.result())
+            except Exception:
+                pass
 
     def sort_key(m):
         order = {"live": 0, "scheduled": 1, "finished": 2, "postponed": 3}
