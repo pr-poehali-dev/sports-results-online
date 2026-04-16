@@ -1,11 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import Icon from "@/components/ui/icon";
 
-const MATCHES_URL = "https://functions.poehali.dev/bd99c5a6-c3fc-4ab8-a2d7-dae9226a45b0";
 const RU_MATCHES_URL = "https://functions.poehali.dev/ad1fe600-20e4-4356-95ea-5a86680cd130";
 
 type Tab = "results" | "schedule" | "stats" | "tournaments" | "ratings" | "favorites" | "profile";
-type SportFilter = "all" | "ru" | "football" | "hockey" | "basketball" | "volleyball";
+type SportFilter = "all" | "football" | "hockey" | "basketball" | "volleyball";
 
 interface Match {
   id: string | number;
@@ -135,34 +134,10 @@ function MatchCard({ match, delay }: { match: Match; delay: number }) {
   );
 }
 
-function NoApiKeyBanner() {
-  return (
-    <div className="card-sport p-5 border border-yellow-500/30 bg-yellow-500/5">
-      <div className="flex items-start gap-3">
-        <Icon name="AlertTriangle" size={20} className="text-yellow-400 mt-0.5 shrink-0" />
-        <div>
-          <p className="font-display font-bold text-white text-sm mb-1">Нужен API-ключ</p>
-          <p className="text-xs text-white/50 font-body leading-relaxed">
-            Зарегистрируйся на <span className="text-red-400">football-data.org</span> — это бесплатно.
-            После регистрации добавь API Token в секреты проекта под именем <span className="text-white/70">FOOTBALL_API_KEY</span>.
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ResultsTab({ matches, loading, error, hasKey }: { matches: Match[]; loading: boolean; error: string | null; hasKey: boolean }) {
+function ResultsTab({ matches, loading, error }: { matches: Match[]; loading: boolean; error: string | null }) {
   const live = matches.filter(m => m.status === "live");
+  const scheduled = matches.filter(m => m.status === "scheduled");
   const finished = matches.filter(m => m.status === "finished");
-
-  if (!hasKey) {
-    return (
-      <div className="space-y-4 animate-fade-in">
-        <NoApiKeyBanner />
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -190,6 +165,14 @@ function ResultsTab({ matches, loading, error, hasKey }: { matches: Match[]; loa
               </div>
             </div>
           )}
+          {scheduled.length > 0 && (
+            <div>
+              <h2 className="font-display text-lg font-semibold text-white/50 mb-3 uppercase tracking-wider">Предстоящие</h2>
+              <div className="space-y-2">
+                {scheduled.map((m, i) => <MatchCard key={m.id} match={m} delay={i} />)}
+              </div>
+            </div>
+          )}
           {finished.length > 0 && (
             <div>
               <h2 className="font-display text-lg font-semibold text-white/50 mb-3 uppercase tracking-wider">Завершённые</h2>
@@ -198,11 +181,11 @@ function ResultsTab({ matches, loading, error, hasKey }: { matches: Match[]; loa
               </div>
             </div>
           )}
-          {live.length === 0 && finished.length === 0 && (
+          {matches.length === 0 && (
             <div className="text-center py-16">
-              <p className="font-display text-4xl text-white/10 mb-3">⚽</p>
-              <p className="font-display font-semibold text-white/30 uppercase tracking-wider">Матчей сейчас нет</p>
-              <p className="text-white/20 font-body text-sm mt-2">Проверь расписание</p>
+              <p className="font-display text-4xl text-white/10 mb-3">🏆</p>
+              <p className="font-display font-semibold text-white/30 uppercase tracking-wider">Событий нет</p>
+              <p className="text-white/20 font-body text-sm mt-2">Попробуй обновить</p>
             </div>
           )}
         </>
@@ -211,17 +194,13 @@ function ResultsTab({ matches, loading, error, hasKey }: { matches: Match[]; loa
   );
 }
 
-function ScheduleTab({ matches, loading, hasKey }: { matches: Match[]; loading: boolean; hasKey: boolean }) {
+function ScheduleTab({ matches, loading }: { matches: Match[]; loading: boolean }) {
   const scheduled = matches.filter(m => m.status === "scheduled");
   const grouped: Record<string, Match[]> = {};
   scheduled.forEach(m => {
     if (!grouped[m.date]) grouped[m.date] = [];
     grouped[m.date].push(m);
   });
-
-  if (!hasKey) {
-    return <div className="animate-fade-in"><NoApiKeyBanner /></div>;
-  }
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -492,7 +471,6 @@ function ProfileTab() {
 
 const SPORT_FILTERS: { id: SportFilter; label: string }[] = [
   { id: "all", label: "Все" },
-  { id: "ru", label: "🇷🇺 Россия" },
   { id: "football", label: "⚽ Футбол" },
   { id: "hockey", label: "🏒 Хоккей" },
   { id: "basketball", label: "🏀 Баскет" },
@@ -506,44 +484,21 @@ const SPORT_EMOJI_MAP: Record<string, SportFilter> = {
   "🏐": "volleyball",
 };
 
-const RU_LEAGUES = ["РПЛ", "ФНЛ", "КХЛ", "ВТБ", "Суперлига"];
-
 export default function Index() {
   const [activeTab, setActiveTab] = useState<Tab>("results");
   const [sportFilter, setSportFilter] = useState<SportFilter>("all");
-  const [matches, setMatches] = useState<Match[]>([]);
   const [ruMatches, setRuMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [hasKey, setHasKey] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const fetchMatches = useCallback(async () => {
     try {
       setError(null);
-      const [euRes, ruRes] = await Promise.allSettled([
-        fetch(MATCHES_URL).then(r => r.json()),
-        fetch(RU_MATCHES_URL).then(r => r.json()),
-      ]);
-
-      if (euRes.status === "fulfilled") {
-        const data = euRes.value;
-        if (data.error === "no_api_key") {
-          setHasKey(false);
-          setMatches([]);
-        } else {
-          setHasKey(true);
-          setMatches(data.matches || []);
-        }
+      const res = await fetch(RU_MATCHES_URL).then(r => r.json());
+      if (!res.error) {
+        setRuMatches(res.matches || []);
       }
-
-      if (ruRes.status === "fulfilled") {
-        const data = ruRes.value;
-        if (!data.error) {
-          setRuMatches(data.matches || []);
-        }
-      }
-
       setLastUpdated(new Date());
     } catch {
       setError("Не удалось загрузить данные. Проверь соединение.");
@@ -558,21 +513,31 @@ export default function Index() {
     return () => clearInterval(interval);
   }, [fetchMatches]);
 
-  const allMatches = [...ruMatches, ...matches];
-
-  const filteredMatches = allMatches.filter(m => {
-    if (sportFilter === "all") return true;
-    if (sportFilter === "ru") return RU_LEAGUES.some(l => m.league.includes(l));
+  // "Все" — только live и scheduled, сортировка по времени начала
+  // Остальные фильтры — все статусы по виду спорта
+  const filteredMatches = ruMatches.filter(m => {
+    if (sportFilter === "all") return m.status === "live" || m.status === "scheduled";
     return SPORT_EMOJI_MAP[m.sport] === sportFilter;
+  }).sort((a, b) => {
+    if (sportFilter === "all") {
+      const order = { live: 0, scheduled: 1, finished: 2, postponed: 3 };
+      const os = order[a.status] - order[b.status];
+      if (os !== 0) return os;
+      return a.utcDate.localeCompare(b.utcDate);
+    }
+    const order = { live: 0, scheduled: 1, finished: 2, postponed: 3 };
+    const os = order[a.status] - order[b.status];
+    if (os !== 0) return os;
+    return a.utcDate.localeCompare(b.utcDate);
   });
 
-  const liveCount = allMatches.filter(m => m.status === "live").length;
+  const liveCount = ruMatches.filter(m => m.status === "live").length;
 
   const renderContent = () => {
     switch (activeTab) {
-      case "results": return <ResultsTab matches={filteredMatches} loading={loading} error={error} hasKey={hasKey} />;
-      case "schedule": return <ScheduleTab matches={filteredMatches} loading={loading} hasKey={hasKey} />;
-      case "stats": return <StatsTab matches={allMatches} />;
+      case "results": return <ResultsTab matches={filteredMatches} loading={loading} error={error} />;
+      case "schedule": return <ScheduleTab matches={filteredMatches} loading={loading} />;
+      case "stats": return <StatsTab matches={ruMatches} />;
       case "tournaments": return <TournamentsTab />;
       case "ratings": return <RatingsTab />;
       case "favorites": return <FavoritesTab />;
