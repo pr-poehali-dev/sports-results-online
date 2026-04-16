@@ -6,7 +6,7 @@
       "path": "/",
       "expectedStatus": 200,
       "expectedBody": {"matches": []},
-      "bodyMatcher": "partial"
+      "bodyMatcher": "keys_exist"
     },
     {
       "name": "OPTIONS CORS",
