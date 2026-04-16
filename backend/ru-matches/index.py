@@ -1,35 +1,33 @@
 """
-Получение матчей российских лиг через api-sport.ru.
-Поддерживает футбол (РПЛ, ФНЛ), хоккей (КХЛ), баскетбол (Единая лига ВТБ), волейбол.
-v4 — диапазон: вчера + 7 дней вперёд, параллельные запросы
+Получение матчей российских лиг через api-sports.io (нативный доступ).
+Футбол (РПЛ, ФНЛ), хоккей (КХЛ), баскетбол (ВТБ), волейбол (Суперлига).
+v6 — нативный api-sports, x-apisports-key, без RapidAPI
 """
 import os
 import json
 import urllib.request
+import urllib.error
 from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 LEAGUES = [
-    {"sport": "football", "id": 235, "name": "🇷🇺 РПЛ", "emoji": "⚽"},
-    {"sport": "football", "id": 238, "name": "🇷🇺 ФНЛ", "emoji": "⚽"},
-    {"sport": "hockey",   "id": 50,  "name": "🇷🇺 КХЛ", "emoji": "🏒"},
-    {"sport": "basketball","id": 121, "name": "🇷🇺 ВТБ", "emoji": "🏀"},
-    {"sport": "volleyball","id": 72,  "name": "🇷🇺 Суперлига", "emoji": "🏐"},
+    {"sport": "football",   "id": 235, "name": "🇷🇺 РПЛ",       "emoji": "⚽"},
+    {"sport": "football",   "id": 238, "name": "🇷🇺 ФНЛ",       "emoji": "⚽"},
+    {"sport": "hockey",     "id": 50,  "name": "🇷🇺 КХЛ",       "emoji": "🏒"},
+    {"sport": "basketball", "id": 121, "name": "🇷🇺 ВТБ",       "emoji": "🏀"},
+    {"sport": "volleyball", "id": 72,  "name": "🇷🇺 Суперлига", "emoji": "🏐"},
 ]
 
+# Нативные URL api-sports (без RapidAPI proxy)
 SPORT_BASE_URLS = {
-    "football":   "https://api-football-v1.p.rapidapi.com/v3",
-    "hockey":     "https://api-hockey.p.rapidapi.com",
-    "basketball": "https://api-basketball.p.rapidapi.com",
-    "volleyball": "https://api-volleyball.p.rapidapi.com",
+    "football":   "https://v3.football.api-sports.io",
+    "hockey":     "https://v1.hockey.api-sports.io",
+    "basketball": "https://v1.basketball.api-sports.io",
+    "volleyball": "https://v1.volleyball.api-sports.io",
 }
 
-RAPIDAPI_HOSTS = {
-    "football":   "api-football-v1.p.rapidapi.com",
-    "hockey":     "api-hockey.p.rapidapi.com",
-    "basketball": "api-basketball.p.rapidapi.com",
-    "volleyball": "api-volleyball.p.rapidapi.com",
-}
+FOOTBALL_SEASON = "2025"
+OTHER_SEASON = "2024-2025"
 
 STATUS_MAP = {
     "NS": "scheduled", "TBD": "scheduled",
@@ -50,19 +48,18 @@ MONTHS_RU = ["янв", "фев", "мар", "апр", "май", "июн",
 
 
 def api_request(url: str, api_key: str) -> dict:
-    host = url.split("/")[2]
     req = urllib.request.Request(url, headers={
-        "x-rapidapi-key": api_key,
-        "x-rapidapi-host": host,
+        "x-apisports-key": api_key,
     })
     try:
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            raw = resp.read().decode()
-            data = json.loads(raw)
-            print(f"[OK] {url} -> {len(data.get('response', []))} results, errors={data.get('errors')}")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+            cnt = len(data.get("response", []))
+            errs = data.get("errors", {})
+            print(f"[OK] {url} -> {cnt} items, errors={errs}")
             return data
     except urllib.error.HTTPError as e:
-        body = e.read().decode()[:300]
+        body = e.read().decode()[:200]
         print(f"[HTTP {e.code}] {url} -> {body}")
         return {}
     except Exception as e:
@@ -89,7 +86,7 @@ def date_label(dt_str: str) -> tuple:
         return "Сегодня", ""
 
 
-def get_range() -> tuple:
+def get_range():
     now = datetime.now(timezone.utc) + timedelta(hours=3)
     return (
         (now - timedelta(days=1)).strftime("%Y-%m-%d"),
@@ -99,7 +96,8 @@ def get_range() -> tuple:
 
 def fetch_football(league_id: int, league_name: str, api_key: str) -> list:
     date_from, date_to = get_range()
-    url = f"{SPORT_BASE_URLS['football']}/fixtures?league={league_id}&season=2025&from={date_from}&to={date_to}"
+    base = SPORT_BASE_URLS["football"]
+    url = f"{base}/fixtures?league={league_id}&season={FOOTBALL_SEASON}&from={date_from}&to={date_to}"
     data = api_request(url, api_key)
     results = []
     for fix in data.get("response", []):
@@ -127,18 +125,14 @@ def fetch_football(league_id: int, league_name: str, api_key: str) -> list:
     return results
 
 
-def fetch_one_day(sport: str, league_id: int, league_name: str, emoji: str,
-                  api_key: str, date: str, seen_ids: set) -> list:
+def fetch_other_sport_day(sport: str, league_id: int, league_name: str,
+                          emoji: str, api_key: str, date: str) -> list:
     base = SPORT_BASE_URLS[sport]
-    season = "2024-2025"
-    url = f"{base}/games?league={league_id}&season={season}&date={date}"
+    url = f"{base}/games?league={league_id}&season={OTHER_SEASON}&date={date}"
     data = api_request(url, api_key)
     results = []
     for game in data.get("response", []):
         gid = f"{sport}_{game.get('id')}"
-        if gid in seen_ids:
-            continue
-        seen_ids.add(gid)
         teams = game.get("teams", {})
         scores = game.get("scores", {})
         status_raw = game.get("status", {}).get("short", "NS")
@@ -167,18 +161,21 @@ def fetch_one_day(sport: str, league_id: int, league_name: str, emoji: str,
     return results
 
 
-def fetch_other_sport(sport: str, league_id: int, league_name: str, emoji: str, api_key: str) -> list:
+def fetch_other_sport(sport: str, league_id: int, league_name: str,
+                      emoji: str, api_key: str) -> list:
     now = datetime.now(timezone.utc) + timedelta(hours=3)
     dates = [(now + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(-1, 8)]
     seen_ids: set = set()
     results = []
-    # Параллельно по дням
     with ThreadPoolExecutor(max_workers=9) as ex:
-        futs = [ex.submit(fetch_one_day, sport, league_id, league_name, emoji, api_key, d, seen_ids)
-                for d in dates]
+        futs = [ex.submit(fetch_other_sport_day, sport, league_id, league_name,
+                          emoji, api_key, d) for d in dates]
         for fut in as_completed(futs):
             try:
-                results.extend(fut.result())
+                for item in fut.result():
+                    if item["id"] not in seen_ids:
+                        seen_ids.add(item["id"])
+                        results.append(item)
             except Exception:
                 pass
     return results
@@ -187,7 +184,9 @@ def fetch_other_sport(sport: str, league_id: int, league_name: str, emoji: str, 
 def fetch_league(league: dict, api_key: str) -> list:
     if league["sport"] == "football":
         return fetch_football(league["id"], league["name"], api_key)
-    return fetch_other_sport(league["sport"], league["id"], league["name"], league["emoji"], api_key)
+    return fetch_other_sport(
+        league["sport"], league["id"], league["name"], league["emoji"], api_key
+    )
 
 
 def handler(event: dict, context) -> dict:
@@ -200,7 +199,7 @@ def handler(event: dict, context) -> dict:
     if event.get("httpMethod") == "OPTIONS":
         return {"statusCode": 200, "headers": cors, "body": ""}
 
-    api_key = os.environ.get("RAPIDAPI_KEY", "") or os.environ.get("APISPORT_KEY", "")
+    api_key = os.environ.get("APISPORT_KEY", "")
     if not api_key:
         return {
             "statusCode": 200,
