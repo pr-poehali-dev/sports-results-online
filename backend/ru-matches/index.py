@@ -1,7 +1,7 @@
 """
 Получение матчей российских лиг через api-sport.ru.
 Поддерживает футбол (РПЛ, ФНЛ), хоккей (КХЛ), баскетбол (Единая лига ВТБ), волейбол.
-v1
+v2 — вчерашние результаты + сегодня
 """
 import os
 import json
@@ -89,79 +89,103 @@ def date_label(dt_str: str) -> tuple:
         return "Сегодня", ""
 
 
+def get_dates() -> tuple:
+    """Возвращает (вчера, сегодня) в московском времени"""
+    now_moscow = datetime.now(timezone.utc) + timedelta(hours=3)
+    today = now_moscow.strftime("%Y-%m-%d")
+    yesterday = (now_moscow - timedelta(days=1)).strftime("%Y-%m-%d")
+    return yesterday, today
+
+
 def fetch_football(league_id: int, league_name: str, api_key: str) -> list:
-    today = (datetime.now(timezone.utc) + timedelta(hours=3)).strftime("%Y-%m-%d")
+    yesterday, today = get_dates()
     base = SPORT_BASE_URLS["football"]
-    url = f"{base}/fixtures?league={league_id}&season=2025&date={today}"
-    data = api_request(url, api_key)
     results = []
-    for fix in data.get("response", []):
-        f = fix.get("fixture", {})
-        teams = fix.get("teams", {})
-        goals = fix.get("goals", {})
-        status_raw = f.get("status", {}).get("short", "NS")
-        status = STATUS_MAP.get(status_raw, "scheduled")
-        elapsed = f.get("status", {}).get("elapsed")
-        dl, tm = date_label(f.get("date", ""))
-        if status == "live" and elapsed:
-            tm = f"{elapsed}'"
-        elif status == "finished":
-            tm = "ФТ"
-        results.append({
-            "id": f"football_{f.get('id')}",
-            "home": teams.get("home", {}).get("name", "—"),
-            "away": teams.get("away", {}).get("name", "—"),
-            "scoreHome": goals.get("home"),
-            "scoreAway": goals.get("away"),
-            "status": status,
-            "time": tm,
-            "date": dl,
-            "league": league_name,
-            "sport": "⚽",
-            "utcDate": f.get("date", ""),
-        })
+    seen_ids = set()
+
+    for date in [yesterday, today]:
+        url = f"{base}/fixtures?league={league_id}&season=2025&date={date}"
+        data = api_request(url, api_key)
+        for fix in data.get("response", []):
+            f = fix.get("fixture", {})
+            fid = f"football_{f.get('id')}"
+            if fid in seen_ids:
+                continue
+            seen_ids.add(fid)
+
+            teams = fix.get("teams", {})
+            goals = fix.get("goals", {})
+            status_raw = f.get("status", {}).get("short", "NS")
+            status = STATUS_MAP.get(status_raw, "scheduled")
+            elapsed = f.get("status", {}).get("elapsed")
+            dl, tm = date_label(f.get("date", ""))
+            if status == "live" and elapsed:
+                tm = f"{elapsed}'"
+            elif status == "finished":
+                tm = "ФТ"
+            results.append({
+                "id": fid,
+                "home": teams.get("home", {}).get("name", "—"),
+                "away": teams.get("away", {}).get("name", "—"),
+                "scoreHome": goals.get("home"),
+                "scoreAway": goals.get("away"),
+                "status": status,
+                "time": tm,
+                "date": dl,
+                "league": league_name,
+                "sport": "⚽",
+                "utcDate": f.get("date", ""),
+            })
     return results
 
 
 def fetch_other_sport(sport: str, league_id: int, league_name: str, emoji: str, api_key: str) -> list:
-    today = (datetime.now(timezone.utc) + timedelta(hours=3)).strftime("%Y-%m-%d")
+    yesterday, today = get_dates()
     base = SPORT_BASE_URLS[sport]
-    url = f"{base}/games?league={league_id}&season=2024-2025&date={today}"
-    data = api_request(url, api_key)
     results = []
-    for game in data.get("response", []):
-        teams = game.get("teams", {})
-        scores = game.get("scores", {})
-        status_raw = game.get("status", {}).get("short", "NS")
-        status = STATUS_MAP.get(status_raw, "scheduled")
+    seen_ids = set()
 
-        home_score = None
-        away_score = None
-        if status in ("live", "finished"):
-            home_score = scores.get("home", {}).get("total") if isinstance(scores.get("home"), dict) else scores.get("home")
-            away_score = scores.get("away", {}).get("total") if isinstance(scores.get("away"), dict) else scores.get("away")
+    for date in [yesterday, today]:
+        url = f"{base}/games?league={league_id}&season=2024-2025&date={date}"
+        data = api_request(url, api_key)
+        for game in data.get("response", []):
+            gid = f"{sport}_{game.get('id')}"
+            if gid in seen_ids:
+                continue
+            seen_ids.add(gid)
 
-        date_str = game.get("date", "")
-        dl, tm = date_label(date_str)
-        if status == "finished":
-            tm = "ФТ"
-        elif status == "live":
-            period = game.get("status", {}).get("long", "")
-            tm = period[:6] if period else "LIVE"
+            teams = game.get("teams", {})
+            scores = game.get("scores", {})
+            status_raw = game.get("status", {}).get("short", "NS")
+            status = STATUS_MAP.get(status_raw, "scheduled")
 
-        results.append({
-            "id": f"{sport}_{game.get('id')}",
-            "home": teams.get("home", {}).get("name", "—"),
-            "away": teams.get("away", {}).get("name", "—"),
-            "scoreHome": home_score,
-            "scoreAway": away_score,
-            "status": status,
-            "time": tm,
-            "date": dl,
-            "league": league_name,
-            "sport": emoji,
-            "utcDate": date_str,
-        })
+            home_score = None
+            away_score = None
+            if status in ("live", "finished"):
+                home_score = scores.get("home", {}).get("total") if isinstance(scores.get("home"), dict) else scores.get("home")
+                away_score = scores.get("away", {}).get("total") if isinstance(scores.get("away"), dict) else scores.get("away")
+
+            date_str = game.get("date", "")
+            dl, tm = date_label(date_str)
+            if status == "finished":
+                tm = "ФТ"
+            elif status == "live":
+                period = game.get("status", {}).get("long", "")
+                tm = period[:6] if period else "LIVE"
+
+            results.append({
+                "id": gid,
+                "home": teams.get("home", {}).get("name", "—"),
+                "away": teams.get("away", {}).get("name", "—"),
+                "scoreHome": home_score,
+                "scoreAway": away_score,
+                "status": status,
+                "time": tm,
+                "date": dl,
+                "league": league_name,
+                "sport": emoji,
+                "utcDate": date_str,
+            })
     return results
 
 
