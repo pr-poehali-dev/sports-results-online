@@ -18,10 +18,17 @@ LEAGUES = [
 ]
 
 SPORT_BASE_URLS = {
-    "football":   "https://v3.football.api-sports.io",
-    "hockey":     "https://v1.hockey.api-sports.io",
-    "basketball": "https://v1.basketball.api-sports.io",
-    "volleyball": "https://v1.volleyball.api-sports.io",
+    "football":   "https://api-football-v1.p.rapidapi.com/v3",
+    "hockey":     "https://api-hockey.p.rapidapi.com",
+    "basketball": "https://api-basketball.p.rapidapi.com",
+    "volleyball": "https://api-volleyball.p.rapidapi.com",
+}
+
+RAPIDAPI_HOSTS = {
+    "football":   "api-football-v1.p.rapidapi.com",
+    "hockey":     "api-hockey.p.rapidapi.com",
+    "basketball": "api-basketball.p.rapidapi.com",
+    "volleyball": "api-volleyball.p.rapidapi.com",
 }
 
 STATUS_MAP = {
@@ -43,14 +50,23 @@ MONTHS_RU = ["янв", "фев", "мар", "апр", "май", "июн",
 
 
 def api_request(url: str, api_key: str) -> dict:
+    host = url.split("/")[2]
     req = urllib.request.Request(url, headers={
         "x-rapidapi-key": api_key,
-        "x-apisports-key": api_key,
+        "x-rapidapi-host": host,
     })
     try:
         with urllib.request.urlopen(req, timeout=8) as resp:
-            return json.loads(resp.read().decode())
-    except Exception:
+            raw = resp.read().decode()
+            data = json.loads(raw)
+            print(f"[OK] {url} -> {len(data.get('response', []))} results, errors={data.get('errors')}")
+            return data
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()[:300]
+        print(f"[HTTP {e.code}] {url} -> {body}")
+        return {}
+    except Exception as e:
+        print(f"[ERR] {url} -> {type(e).__name__}: {e}")
         return {}
 
 
@@ -184,7 +200,7 @@ def handler(event: dict, context) -> dict:
     if event.get("httpMethod") == "OPTIONS":
         return {"statusCode": 200, "headers": cors, "body": ""}
 
-    api_key = os.environ.get("APISPORT_KEY", "")
+    api_key = os.environ.get("RAPIDAPI_KEY", "") or os.environ.get("APISPORT_KEY", "")
     if not api_key:
         return {
             "statusCode": 200,
